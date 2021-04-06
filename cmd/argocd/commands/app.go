@@ -52,6 +52,7 @@ import (
 	argokube "github.com/argoproj/argo-cd/v2/util/kube"
 	"github.com/argoproj/argo-cd/v2/util/templates"
 	"github.com/argoproj/argo-cd/v2/util/text/label"
+	"github.com/kylelemons/godebug/pretty"
 )
 
 var (
@@ -84,6 +85,7 @@ func NewApplicationCommand(clientOpts *argocdclient.ClientOptions) *cobra.Comman
 	command.AddCommand(NewApplicationUnsetCommand(clientOpts))
 	command.AddCommand(NewApplicationSyncCommand(clientOpts))
 	command.AddCommand(NewApplicationHistoryCommand(clientOpts))
+	command.AddCommand(NewApplicationHistoryDiffCommand(clientOpts))
 	command.AddCommand(NewApplicationRollbackCommand(clientOpts))
 	command.AddCommand(NewApplicationListCommand(clientOpts))
 	command.AddCommand(NewApplicationDeleteCommand(clientOpts))
@@ -1806,6 +1808,41 @@ func NewApplicationHistoryCommand(clientOpts *argocdclient.ClientOptions) *cobra
 		},
 	}
 	command.Flags().StringVarP(&output, "output", "o", "wide", "Output format. One of: wide|id")
+	return command
+}
+
+// NewApplicationHistoryDiffCommand returns a new instance of an `argocd app history-diff` command
+func NewApplicationHistoryDiffCommand(clientOpts *argocdclient.ClientOptions) *cobra.Command {
+	var (
+		rev1Source, rev2Source argoappv1.ApplicationSource
+	)
+	var command = &cobra.Command{
+		Use:   "history-diff APPNAME REVISION REVISION",
+		Short: "Show application deployment history as a diff between two revisions",
+		Run: func(c *cobra.Command, args []string) {
+			if len(args) != 3 {
+				c.HelpFunc()(c, args)
+				os.Exit(1)
+			}
+			conn, appIf := argocdclient.NewClientOrDie(clientOpts).NewApplicationClientOrDie()
+			defer argoio.Close(conn)
+			appName := args[0]
+			rev1, err := strconv.ParseInt(args[1], 10, 64)
+			rev2, err := strconv.ParseInt(args[2], 10, 64)
+			app, err := appIf.Get(context.Background(), &applicationpkg.ApplicationQuery{Name: &appName})
+			errors.CheckError(err)
+			for _, revision := range app.Status.History {
+				if revision.ID == rev1 {
+					rev1Source = revision.Source
+				}
+				if revision.ID == rev2 {
+					rev2Source = revision.Source
+				}
+			}
+			fmt.Printf("Comparing revision [%s] with [%s]", rev1, rev2)
+			fmt.Println(pretty.Compare(rev1Source, rev2Source))
+		},
+	}
 	return command
 }
 
